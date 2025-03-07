@@ -1,12 +1,8 @@
-interface CardData {
-    meta?: any;
-    data?: any;
-    [key: string]: any;
-}
+import { AllPrintingsFile } from "../types";
 
 class CardDataStore {
     private static instance: CardDataStore;
-    private data: CardData = {};
+    private data: AllPrintingsFile | undefined;
 
     private constructor() {}
 
@@ -17,11 +13,11 @@ class CardDataStore {
         return CardDataStore.instance;
     }
 
-    setData(data: CardData) {
+    setData(data: AllPrintingsFile) {
         this.data = data;
     }
 
-    getData(): CardData {
+    getData(): AllPrintingsFile | undefined {
         return this.data;
     }
 }
