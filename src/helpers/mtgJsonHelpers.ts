@@ -1,10 +1,11 @@
+import AdmZip from 'adm-zip';
 import fetch from 'node-fetch';
 import fs from 'fs/promises';
 import path from 'path';
 
 const REMOTE_DATA_URL = 'https://mtgjson.com/api/v5/AllPrintings.json.zip';
 const DATA_DIR = 'data';
-const DATA_FILE = 'AllPrintings.json.zip';
+const DATA_FILE = 'AllPrintings.json';
 const DATA_PATH = path.join(DATA_DIR, DATA_FILE);
 
 interface timestamp {
@@ -33,6 +34,21 @@ export async function downloadCardData() {
     await fs.mkdir(DATA_DIR, { recursive: true });
     const response = await fetch(REMOTE_DATA_URL);
     const data = await response.arrayBuffer();
-    await fs.writeFile(DATA_PATH, Buffer.from(data));
+    
+    // Create temporary zip file
+    const tempZipPath = path.join(DATA_DIR, 'temp.zip');
+    await fs.writeFile(tempZipPath, Buffer.from(data));
+    
+    // Extract JSON and save it
+    const zip = new AdmZip(tempZipPath);
+    const jsonContent = zip.readAsText('AllPrintings.json');
+    await fs.writeFile(DATA_PATH, jsonContent);
+    
+    // Clean up temp zip file
+    await fs.unlink(tempZipPath);
 }
 
+export async function loadCardData() {
+    const jsonContent = await fs.readFile(DATA_PATH, 'utf-8');
+    return JSON.parse(jsonContent);
+}

@@ -1,5 +1,5 @@
 import express from 'express';
-import { checkRemoteFileModified, checkLocalFileModified, downloadCardData } from '../helpers/mtgJsonHelpers';
+import { checkRemoteFileModified, checkLocalFileModified, downloadCardData, loadCardData } from '../helpers/mtgJsonHelpers';
 
 const router = express.Router();
 
@@ -21,6 +21,18 @@ router.post('/download', async (req, res) => {
         res.redirect('/admin');
     } catch (error) {
         res.status(500).send('Error downloading data');
+    }
+});
+
+router.post('/load-keys', async (req, res) => {
+    try {
+        const data = await loadCardData();
+        // console.log('top level keys?', );
+        console.log('Top level keys:', Object.keys(data));
+        res.redirect('/admin');
+    } catch (error) {
+        console.error('Error loading data:', error);
+        res.status(500).send('Error loading data');
     }
 });
 

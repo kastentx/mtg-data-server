@@ -19,9 +19,4 @@ router.get('/last-modified', async (req, res, next) => {
     }
 });
 
-// router.get('/cards', asyncHandler(async (req, res) => {
-//     const cards = await loadCardData();
-//     res.json(cards);
-// }));
-
 export default router;
