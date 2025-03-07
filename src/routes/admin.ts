@@ -1,5 +1,5 @@
 import express from 'express';
-import { checkRemoteFileModified, checkLocalFileModified } from '../helpers/mtgJsonHelpers';
+import { checkRemoteFileModified, checkLocalFileModified, downloadCardData } from '../helpers/mtgJsonHelpers';
 
 const router = express.Router();
 
@@ -13,6 +13,15 @@ router.get('/', async (req, res) => {
         lastModifiedRemote,
         lastModifiedLocal
     });
+});
+
+router.post('/download', async (req, res) => {
+    try {
+        await downloadCardData();
+        res.redirect('/admin');
+    } catch (error) {
+        res.status(500).send('Error downloading data');
+    }
 });
 
 export default router;

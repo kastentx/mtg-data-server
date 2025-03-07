@@ -29,8 +29,8 @@ export async function checkLocalFileModified() {
     }
 }
 
-
 export async function downloadCardData() {
+    await fs.mkdir(DATA_DIR, { recursive: true });
     const response = await fetch(REMOTE_DATA_URL);
     const data = await response.arrayBuffer();
     await fs.writeFile(DATA_PATH, Buffer.from(data));
