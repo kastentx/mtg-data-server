@@ -4,6 +4,8 @@ import { engine } from 'express-handlebars';
 import path from 'path';
 import adminRouter from './routes/admin';
 import apiV1Router from './routes/api-v1';
+import { checkLocalFileModified, downloadCardData, loadCardData } from './helpers/mtgJsonHelpers';
+import CardDataStore from './store/cardData';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -22,6 +24,25 @@ app.get('/', (req, res) => {
 app.use('/admin', adminRouter);
 app.use('/api/v1', apiV1Router);
 
-app.listen(port, () => {
-  console.log(`Server is running on http://localhost:${port}`);
+async function initializeData() {
+  try {
+    const localDataExists = await checkLocalFileModified();
+    if (!localDataExists) {
+      console.log('No local data found. Downloading...');
+      await downloadCardData();
+    }
+    console.log('Loading card data...');
+    const data = await loadCardData();
+    CardDataStore.getInstance().setData(data);
+    console.log('Card data loaded successfully');
+  } catch (error) {
+    console.error('Failed to initialize data:', error);
+    process.exit(1);
+  }
+}
+
+initializeData().then(() => {
+  app.listen(port, () => {
+    console.log(`Server is running on http://localhost:${port}`);
+  });
 });
