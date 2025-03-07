@@ -11,12 +11,14 @@
     "adm-zip": "^0.5.10",
     "cors": "^2.8.5",
     "express": "^4.21.2",
-    "express-async-handler": "^1.2.0"
+    "express-async-handler": "^1.2.0",
+    "express-handlebars": "^8.0.1"
   },
   "devDependencies": {
     "@types/adm-zip": "^0.5.0",
     "@types/cors": "^2.8.13",
     "@types/express": "^5.0.0",
+    "@types/express-handlebars": "^6.0.2",
     "@types/node": "^18.15.11",
     "nodemon": "^3.1.9",
     "ts-node": "^10.9.2",
