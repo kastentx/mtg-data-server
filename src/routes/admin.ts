@@ -1,11 +1,17 @@
 import express from 'express';
+import { checkRemoteFileModified, checkLocalFileModified } from '../helpers/mtgJsonHelpers';
 
 const router = express.Router();
 
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
+    const lastModifiedRemote = await checkRemoteFileModified();
+    const lastModifiedLocal = await checkLocalFileModified();
+
     res.render('admin', {
         title: 'MTG Admin Dashboard',
-        layout: 'main'
+        layout: 'main',
+        lastModifiedRemote,
+        lastModifiedLocal
     });
 });
 

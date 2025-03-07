@@ -3,6 +3,7 @@ import cors from 'cors';
 import { engine } from 'express-handlebars';
 import path from 'path';
 import adminRouter from './routes/admin';
+import apiV1Router from './routes/api-v1';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -19,6 +20,7 @@ app.get('/', (req, res) => {
 });
 
 app.use('/admin', adminRouter);
+app.use('/api/v1', apiV1Router);
 
 app.listen(port, () => {
   console.log(`Server is running on http://localhost:${port}`);

@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
-import path from 'path';
 import AdmZip from 'adm-zip';
 
+const REMOTE_DATA_URL = 'https://mtgjson.com/api/v5/AllPrintings.json.zip';
 const DATA_FILE = 'AllPrintings.json.zip';
 
 export async function checkFileStatus() {
@@ -27,7 +27,7 @@ export async function loadCardData() {
 
 export async function downloadCardData() {
   // TODO: Replace with actual download URL and logic
-  const response = await fetch('https://example.com/mtg-data.zip');
+  const response = await fetch(REMOTE_DATA_URL);
   const data = await response.arrayBuffer();
   await fs.writeFile(DATA_FILE, Buffer.from(data));
 }

@@ -9,3 +9,26 @@
         </div>
     </div>
 </div>
+<div class="row mt-4">
+    <div class="col">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Data Status</h5>
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Remote Data</h6>
+                        <p class="card-text">
+                            Last modified: {{#if lastModifiedRemote}}{{lastModifiedRemote}}{{else}}Unknown{{/if}}
+                        </p>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Local Data</h6>
+                        <p class="card-text">
+                            Last modified: {{#if lastModifiedLocal}}{{lastModifiedLocal}}{{else}}Unknown{{/if}}
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
