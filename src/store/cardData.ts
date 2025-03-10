@@ -3,7 +3,7 @@ import { AllPrintingsFile } from "../types";
 class CardDataStore {
     private static instance: CardDataStore;
     private data: AllPrintingsFile | undefined;
-
+    private symbols: Record<string, string> | undefined;
     private constructor() {}
 
     static getInstance(): CardDataStore {
@@ -19,6 +19,17 @@ class CardDataStore {
 
     getData(): AllPrintingsFile | undefined {
         return this.data;
+    }
+
+    setSymbols(symbols: Record<string, string>) {
+        if (!this.data) {
+            return;
+        }
+        this.symbols = symbols;
+    }
+
+    getSymbols(): Record<string, string> | undefined {
+        return this.symbols;
     }
 }
 

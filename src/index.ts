@@ -4,7 +4,7 @@ import { engine } from 'express-handlebars';
 import path from 'path';
 import adminRouter from './routes/admin';
 import apiV1Router from './routes/api-v1';
-import { checkLocalFileModified, downloadCardData, loadCardData } from './helpers/mtgJsonHelpers';
+import { checkLocalFileModified, downloadCardData, downloadSymbolData, loadCardData, loadSymbolData } from './helpers/mtgJsonHelpers';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -29,9 +29,11 @@ async function initializeData() {
     if (!localDataExists) {
       console.log('No local data found. Downloading...');
       await downloadCardData();
+      await downloadSymbolData();
     }
     console.log('Loading card data...');
     await loadCardData();
+    await loadSymbolData();
     console.log('Card data loaded successfully');
   } catch (error) {
     console.error('Failed to initialize data:', error);

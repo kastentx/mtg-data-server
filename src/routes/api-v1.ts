@@ -1,24 +1,9 @@
 import express from 'express';
 import asyncHandler from 'express-async-handler';
-import { checkRemoteFileModified } from '../helpers/mtgJsonHelpers';
 import CardDataStore from '../store/cardData';
-import { Meta, Set, SetList } from '../types';
+import { Set } from '../types';
 
 const router = express.Router();
-
-router.get('/status', asyncHandler(async (_req, res) => {
-    const status = 'OK';
-    res.json(status);
-}));
-
-router.get('/last-modified', asyncHandler(async (_req, res, next) => {
-    try {
-        const lastModified = await checkRemoteFileModified();
-        res.json({ lastModified });
-    } catch (error) {
-        next(error);
-    }
-}));
 
 router.get('/set-names', asyncHandler(async (_req, res) => {
     const store = CardDataStore.getInstance();
@@ -33,6 +18,42 @@ router.get('/set-names', asyncHandler(async (_req, res) => {
         code: set.code,
         name: set.name
     })));
+}));
+
+router.get('/sets/:code', asyncHandler(async (req, res) => {
+    const store = CardDataStore.getInstance();
+    const dataFile = store.getData();
+    const data = dataFile?.data as Record<string, Set>;
+    if (!data) {
+        res.status(404).json({ error: 'Card data not found' });
+        return;
+    }
+
+    const set = data[req.params.code];
+    if (!set) {
+        res.status(404).json({ error: 'Set not found' });
+        return;
+    }
+
+    res.json(set);
+}));
+
+router.post('/sets', asyncHandler(async (req, res) => {
+    const store = CardDataStore.getInstance();
+    const dataFile = store.getData();
+    const data = dataFile?.data as Record<string, Set>;
+    if (!data) {
+        res.status(404).json({ error: 'Card data not found' });
+        return;
+    }
+
+    // get list of set codes from request body, and return all sets with those codes
+    const setCodes: string[] = req.body?.setCodes || [];
+    const sets = setCodes.map((code) => data[code]);
+    console.log('Set codes:', setCodes);
+    console.log('Sets:', sets);
+
+    res.json(sets);
 }));
 
 export default router;
