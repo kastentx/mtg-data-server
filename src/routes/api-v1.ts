@@ -20,27 +20,6 @@ router.get('/last-modified', asyncHandler(async (_req, res, next) => {
     }
 }));
 
-router.get('/meta', asyncHandler(async (_req, res) => {
-    const store = CardDataStore.getInstance();
-    const dataFile = store.getData();
-    const meta = dataFile?.meta as Meta;
-    if (!meta) {
-        res.status(404).json({ error: 'Meta data not found' });
-        return;
-    }
-    res.json({ keys: Object.keys(meta) });
-}));
-router.get('/data', asyncHandler(async (_req, res) => {
-    const store = CardDataStore.getInstance();
-    const dataFile = store.getData();
-    const data = dataFile?.data as Record<string, Set>;
-    if (!data) {
-        res.status(404).json({ error: 'Card data not found' });
-        return;
-    }
-    res.json(Object.keys(data));
-}));
-
 router.get('/set-names', asyncHandler(async (_req, res) => {
     const store = CardDataStore.getInstance();
     const dataFile = store.getData();

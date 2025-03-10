@@ -5,7 +5,6 @@ import path from 'path';
 import adminRouter from './routes/admin';
 import apiV1Router from './routes/api-v1';
 import { checkLocalFileModified, downloadCardData, loadCardData } from './helpers/mtgJsonHelpers';
-import CardDataStore from './store/cardData';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -32,8 +31,7 @@ async function initializeData() {
       await downloadCardData();
     }
     console.log('Loading card data...');
-    const data = await loadCardData();
-    CardDataStore.getInstance().setData(data);
+    await loadCardData();
     console.log('Card data loaded successfully');
   } catch (error) {
     console.error('Failed to initialize data:', error);

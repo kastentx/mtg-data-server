@@ -17,6 +17,7 @@ router.get('/', async (req, res) => {
 
 router.post('/download', async (req, res) => {
     try {
+        console.log('Downloading data...');
         await downloadCardData();
         res.redirect('/admin');
     } catch (error) {
@@ -24,14 +25,11 @@ router.post('/download', async (req, res) => {
     }
 });
 
-router.post('/load-keys', async (req, res) => {
+router.post('/load', async (req, res) => {
     try {
         const data = await loadCardData();
-        // console.log('top level keys?', );
-        console.log('Top level keys:', Object.keys(data));
         res.redirect('/admin');
     } catch (error) {
-        console.error('Error loading data:', error);
         res.status(500).send('Error loading data');
     }
 });
