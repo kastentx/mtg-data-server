@@ -2,16 +2,28 @@ import AdmZip from 'adm-zip';
 import fetch from 'node-fetch';
 import fs from 'fs/promises';
 import path from 'path';
+import { existsSync } from 'fs';
 import CardDataStore from '../store/cardData';
-import { json } from 'stream/consumers';
+import sqlite3 from 'sqlite3';
+import { open, Database } from 'sqlite';
 
-const REMOTE_DATA_URL = 'https://mtgjson.com/api/v5/AllPrintings.json.zip';
+// Update URLs to point to SQLite versions
+const REMOTE_DATA_URL = 'https://mtgjson.com/api/v5/AllPrintings.sqlite.zip';
 const REMOTE_SYMBOLS_URL = 'https://api.scryfall.com/symbology';
+// const REMOTE_PRICING_URL = 'https://mtgjson.com/api/v5/AllPrices.sqlite.zip';  // Commented out pricing URL
+
 const DATA_DIR = 'data';
-const DATA_FILE = 'AllPrintings.json';
-const DATA_PATH = path.join(DATA_DIR, DATA_FILE);
+const DATA_FILE = 'AllPrintings.sqlite';
 const SYMBOLS_FILE = 'symbols.json';
+// const PRICING_FILE = 'AllPrices.sqlite';  // Commented out pricing file
+
+const DATA_PATH = path.join(DATA_DIR, DATA_FILE);
 const SYMBOLS_PATH = path.join(DATA_DIR, SYMBOLS_FILE);
+// const PRICING_PATH = path.join(DATA_DIR, PRICING_FILE);  // Commented out pricing path
+
+// Database connection cache
+let cardDb: Database | null = null;
+// let priceDb: Database | null = null;  // Commented out pricing DB connection
 
 interface timestamp {
     lastModified: string;
@@ -35,6 +47,59 @@ export async function checkLocalFileModified() {
     }
 }
 
+/**
+ * Downloads and extracts SQLite pricing database
+ */
+/*
+export async function downloadPricingData() {
+    try {
+        console.log('Downloading pricing data in SQLite format...');
+        await fs.mkdir(DATA_DIR, { recursive: true });
+        
+        // Close any existing database connection
+        if (priceDb) {
+            await priceDb.close();
+            priceDb = null;
+        }
+        
+        const response = await fetch(REMOTE_PRICING_URL);
+        const data = await response.arrayBuffer();
+        
+        // Create temporary zip file
+        const tempZipPath = path.join(DATA_DIR, `${PRICING_FILE}.zip`);
+        await fs.writeFile(tempZipPath, Buffer.from(data));
+        
+        // Extract SQLite file from zip
+        const zip = new AdmZip(tempZipPath);
+        const zipEntries = zip.getEntries();
+        
+        if (zipEntries.length > 0) {
+            // Find SQLite file in the archive
+            const sqliteEntry = zipEntries.find(entry => 
+                entry.name.endsWith('.sqlite') || 
+                entry.name === 'AllPrices.sqlite'
+            );
+            
+            if (sqliteEntry) {
+                console.log(`Extracting ${sqliteEntry.name} to ${PRICING_PATH}`);
+                zip.extractEntryTo(sqliteEntry.entryName, DATA_DIR, false, true, false, PRICING_FILE);
+            } else {
+                throw new Error('No SQLite file found in the pricing data zip file');
+            }
+        } else {
+            throw new Error('No entries found in pricing data zip file');
+        }
+        
+        // Clean up temp zip file
+        await fs.unlink(tempZipPath);
+        console.log('Pricing data downloaded and extracted successfully.');
+    } catch (error) {
+        console.error('Failed to download pricing data:', error);
+        throw error;
+    }
+}
+*/
+
 export async function downloadSymbolData() {
     try {
         await fs.mkdir(DATA_DIR, { recursive: true });
@@ -49,47 +114,277 @@ export async function downloadSymbolData() {
     }
 }
 
+/**
+ * Downloads and extracts SQLite card database
+ */
 export async function downloadCardData() {
     try {
+        console.log('Downloading card data in SQLite format...');
         await fs.mkdir(DATA_DIR, { recursive: true });
+        
+        // Close any existing database connection
+        if (cardDb) {
+            await cardDb.close();
+            cardDb = null;
+        }
+        
         const response = await fetch(REMOTE_DATA_URL);
         const data = await response.arrayBuffer();
         
         // Create temporary zip file
-        const tempZipPath = path.join(DATA_DIR, 'temp.zip');
+        const tempZipPath = path.join(DATA_DIR, `${DATA_FILE}.zip`);
         await fs.writeFile(tempZipPath, Buffer.from(data));
         
-        // Extract JSON and save it
+        // Extract SQLite file from zip
         const zip = new AdmZip(tempZipPath);
-        const jsonContent = zip.readAsText('AllPrintings.json');
-        await fs.writeFile(DATA_PATH, jsonContent);
+        const zipEntries = zip.getEntries();
+        
+        if (zipEntries.length > 0) {
+            // Find SQLite file in the archive
+            const sqliteEntry = zipEntries.find(entry => 
+                entry.name.endsWith('.sqlite') || 
+                entry.name === 'AllPrintings.sqlite'
+            );
+            
+            if (sqliteEntry) {
+                console.log(`Extracting ${sqliteEntry.name} to ${DATA_PATH}`);
+                zip.extractEntryTo(sqliteEntry.entryName, DATA_DIR, false, true, false, DATA_FILE);
+            } else {
+                throw new Error('No SQLite file found in the card data zip file');
+            }
+        } else {
+            throw new Error('No entries found in card data zip file');
+        }
         
         // Clean up temp zip file
         await fs.unlink(tempZipPath);
+        console.log('Card data downloaded and extracted successfully.');
     } catch (error) {
         console.error('Failed to download card data:', error);
         throw error;
     }
 }
 
-export async function loadCardData() {
+/**
+ * Gets or creates a connection to the pricing database
+ */
+/*
+async function getPricingDatabase(): Promise<Database> {
+    if (!priceDb) {
+        if (!existsSync(PRICING_PATH)) {
+            throw new Error(`Pricing database not found at ${PRICING_PATH}. Please download it first.`);
+        }
+        
+        priceDb = await open({
+            filename: PRICING_PATH,
+            driver: sqlite3.Database,
+            mode: sqlite3.OPEN_READONLY
+        });
+    }
+    return priceDb;
+}
+*/
+
+/**
+ * Gets or creates a connection to the card database
+ */
+async function getCardDatabase(): Promise<Database> {
+    if (!cardDb) {
+        if (!existsSync(DATA_PATH)) {
+            throw new Error(`Card database not found at ${DATA_PATH}. Please download it first.`);
+        }
+        
+        cardDb = await open({
+            filename: DATA_PATH,
+            driver: sqlite3.Database,
+            mode: sqlite3.OPEN_READONLY
+        });
+    }
+    return cardDb;
+}
+
+/**
+ * Loads pricing data from SQLite database
+ */
+/*
+export async function loadPricingData() {
     try {
-        const jsonContent = await fs.readFile(DATA_PATH, 'utf-8');
-        CardDataStore.getInstance().setData(JSON.parse(jsonContent));
+        console.log('Loading pricing data from SQLite database...');
+        const cardStore = CardDataStore.getInstance();
+        const db = await getPricingDatabase();
+        
+        // Get metadata
+        const metaRow = await db.get('SELECT value FROM meta LIMIT 1');
+        let meta = {};
+        if (metaRow) {
+            try {
+                meta = JSON.parse(metaRow.value);
+            } catch (e) {
+                console.warn('Failed to parse pricing metadata:', e);
+            }
+        }
+        
+        // Initialize the pricing data structure
+        const pricingData: AllPricesFile = { meta: meta, data: {} };
+        cardStore.setPricingData(pricingData);
+        
+        console.log('Pricing database loaded and ready for querying.');
+        return true;
     } catch (error) {
-        console.error('Failed to load card data:', error);
+        console.error('Failed to load pricing data:', error);
         throw error;
+    }
+}
+*/
+
+/**
+ * Gets pricing data for a specific card UUID
+ */
+/*
+export async function getPriceData(uuid: string) {
+    try {
+        const db = await getPricingDatabase();
+        const result = await db.get(
+            'SELECT data FROM prices WHERE uuid = ?',
+            [uuid]
+        );
+        
+        if (!result) return null;
+        return JSON.parse(result.data);
+    } catch (error) {
+        console.error(`Failed to get price data for ${uuid}:`, error);
+        return null;
+    }
+}
+*/
+
+/**
+ * Loads card data from SQLite database
+ */
+// export async function loadCardData() {
+//     try {
+//         console.log('Loading card data from SQLite database...');
+//         const cardStore = CardDataStore.getInstance();
+//         const db = await getCardDatabase();
+        
+//         // Get metadata
+//         const metaRow = await db.get('SELECT value FROM meta LIMIT 1');
+//         let meta = {} as Meta;
+//         if (metaRow) {
+//             try {
+//                 meta = JSON.parse(metaRow.value);
+//             } catch (e) {
+//                 console.warn('Failed to parse card metadata:', e);
+//             }
+//         }
+        
+//         // Get list of available sets for the store
+//         const sets = await db.all('SELECT code FROM sets');
+//         const setList = sets.map(row => row.code);
+        
+//         // Initialize card data structure with metadata and empty data object
+//         const cardData: AllPrintingsFile = { 
+//             meta: meta, 
+//             data: {}
+//         };
+        
+//         cardStore.setData(cardData);
+//         cardStore.setAvailableSets(setList);
+        
+//         console.log(`Card database loaded with ${setList.length} available sets.`);
+//         return true;
+//     } catch (error) {
+//         console.error('Failed to load card data:', error);
+//         throw error;
+//     }
+// }
+
+/**
+ * Get data for a specific set by its code
+ */
+// export async function getSetData(setCode: string) {
+//     try {
+//         const db = await getCardDatabase();
+//         const setData = await db.get(
+//             'SELECT data FROM sets WHERE code = ?',
+//             [setCode]
+//         );
+        
+//         if (!setData) return null;
+//         return JSON.parse(setData.data);
+//     } catch (error) {
+//         console.error(`Failed to get set data for ${setCode}:`, error);
+//         return null;
+//     }
+// }
+
+/**
+ * Get card by UUID
+ */
+export async function getCardByUuid(uuid: string) {
+    try {
+        const db = await getCardDatabase();
+        const card = await db.get(
+            'SELECT data FROM cards WHERE uuid = ?',
+            [uuid]
+        );
+        
+        if (!card) return null;
+        return JSON.parse(card.data);
+    } catch (error) {
+        console.error(`Failed to get card with UUID ${uuid}:`, error);
+        return null;
+    }
+}
+
+/**
+ * Search for cards by name
+ */
+export async function searchCardsByName(name: string, limit = 20) {
+    try {
+        const db = await getCardDatabase();
+        const cards = await db.all(
+            `SELECT data FROM cards 
+             WHERE name LIKE ? 
+             LIMIT ?`,
+            [`%${name}%`, limit]
+        );
+        
+        return cards.map(row => JSON.parse(row.data));
+    } catch (error) {
+        console.error(`Failed to search cards by name "${name}":`, error);
+        return [];
     }
 }
 
 export async function loadSymbolData() {
     try {
-        // load the value from the toplevel key 'data' in the JSON file
-        const jsonContent = await fs.readFile(SYMBOLS_PATH, 'utf-8');
-        // const symbols = JSON.parse(jsonContent).data;
-        CardDataStore.getInstance().setSymbols(JSON.parse(jsonContent));
+        // Symbol data is typically small, so we can just read the file
+        const symbolData = JSON.parse(await fs.readFile(SYMBOLS_PATH, 'utf8'));
+        const cardStore = CardDataStore.getInstance();
+        cardStore.setSymbols(symbolData);
+        return true;
     } catch (error) {
         console.error('Failed to load symbol data:', error);
         throw error;
     }
+}
+
+/**
+ * Close database connections when the application is shutting down
+ */
+export async function closeConnections() {
+    if (cardDb) {
+        await cardDb.close();
+        cardDb = null;
+    }
+    
+    /* // Commented out pricing DB close
+    if (priceDb) {
+        await priceDb.close();
+        priceDb = null;
+    }
+    */
+    
+    console.log('Database connections closed.');
 }
