@@ -210,6 +210,7 @@ export type CardSet = {
     originalType?: string;
     otherFaceIds?: string[];
     power?: string;
+    pricing?: PriceFormats[];
     printings?: string[];
     promoTypes?: string[];
     purchaseUrls: PurchaseUrls;

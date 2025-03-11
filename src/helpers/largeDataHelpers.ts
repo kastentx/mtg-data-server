@@ -7,12 +7,15 @@ import CardDataStore from '../store/cardData';
 import { AllPrintingsFile, Meta, SetList, CardSet } from '../types';
 
 const DATA_DIR = 'data';
-// Removed pricing-related DB variables
+// Added pricing DB file reference
 const CARD_DB_FILE = 'AllPrintings.sqlite';
+const PRICING_DB_FILE = 'AllPricesToday.sqlite';
 const CARD_DB_PATH = path.join(DATA_DIR, CARD_DB_FILE);
+const PRICING_DB_PATH = path.join(DATA_DIR, PRICING_DB_FILE);
 
 // Database connection cache
 let cardDb: Database | null = null;
+let pricingDb: Database | null = null;
 
 /**
  * Gets or creates a connection to the card database
@@ -35,6 +38,26 @@ export async function getCardDatabase(): Promise<Database> {
 }
 
 /**
+ * Gets or creates a connection to the pricing database
+ */
+export async function getPricingDatabase(): Promise<Database> {
+    if (!pricingDb) {
+        if (!existsSync(PRICING_DB_PATH)) {
+            throw new Error(`Pricing database not found at ${PRICING_DB_PATH}. Please download it first.`);
+        }
+        
+        console.log(`Opening pricing SQLite database at ${PRICING_DB_PATH}`);
+        pricingDb = await open({
+            filename: PRICING_DB_PATH,
+            driver: sqlite3.Database,
+            mode: sqlite3.OPEN_READONLY
+        });
+        console.log('Pricing database connection established');
+    }
+    return pricingDb;
+}
+
+/**
  * Initialize the CardDataStore with data from the SQLite database
  */
 export async function initializeCardStore(): Promise<boolean> {
@@ -42,6 +65,15 @@ export async function initializeCardStore(): Promise<boolean> {
         console.log('Initializing card data store from SQLite database...');
         const cardStore = CardDataStore.getInstance();
         const db = await getCardDatabase();
+        
+        // Also initialize pricing database connection
+        try {
+            await getPricingDatabase();
+            console.log('Pricing database initialized');
+        } catch (error) {
+            console.warn('Failed to initialize pricing database:', error);
+            // Continue without pricing data if unavailable
+        }
         
         // Load metadata
         console.log('Loading metadata...');
@@ -51,21 +83,15 @@ export async function initializeCardStore(): Promise<boolean> {
         console.log('Loading set information...');
         const sets = await loadSetList(db);
         
-        // // Initialize card data structure with metadata
-        // const cardData: AllPrintingsFile = { 
-        //     meta: meta as Meta, 
-        //     data: {} 
-        // };
+        console.log('Loading card information...');
         const cards = await loadCardList(db);
 
-
         // Update card store
-        // cardStore.setData(cardData);
         cardStore.setMetadata(meta);
         cardStore.setAvailableSets(sets);
         cardStore.setAvailableCards(cards);
         
-        console.log(`Card store initialized with ${sets.length} available sets`);
+        console.log(`Card store initialized with ${sets.length} available sets and ${cards.length} cards`);
         return true;
     } catch (error) {
         console.error('Failed to initialize card store:', error);
@@ -132,19 +158,78 @@ async function loadCardList(db: Database): Promise<CardSet[]> {
             return [];
         }
 
-        // Get all cards from the cards table and join with the cardIdentifiers table
+        // Get all cards from the cards table
         const cards = await db.all('SELECT * FROM cards');
+        
+        // Get card identifiers and create a lookup map
         const cardIdentifiers = await db.all('SELECT * FROM cardIdentifiers');
         const cardIdentifiersMap = cardIdentifiers.reduce((acc, row) => {
             acc[row.uuid] = row;
             return acc;
         }, {});
         
+        // Initialize empty pricing map
+        let pricingDataMap: Record<string, any> = {};
+        
+        // Try to load pricing data if available
+        try {
+            const pricingDb = await getPricingDatabase();
+            
+            // Check if the pricing database has the necessary table
+            const pricingTableCheck = await pricingDb.get(
+                `SELECT name FROM sqlite_master
+                WHERE type='table' AND name='cardPrices'`
+            );
+            
+            if (pricingTableCheck) {
+                console.log('Loading pricing information...');
+                // Get the latest pricing information for paper
+                const prices = await pricingDb.all(
+                    'SELECT * FROM cardPrices WHERE gameAvailability="paper" AND currency="USD" AND date = (SELECT MAX(date) FROM cardPrices)'
+                );
+                
+                // Create a simpler pricing data structure
+                pricingDataMap = prices.reduce((acc, row) => {
+                    if (!acc[row.uuid]) {
+                        acc[row.uuid] = {};
+                    }
+                    
+                    // Get the listing type (retail or buylist) and use as top level key
+                    const listingType = row.providerListing?.toLowerCase() === 'buylist' ? 'buylist' : 'retail';
+                    if (!acc[row.uuid][listingType]) {
+                        acc[row.uuid][listingType] = {};
+                    }
+                    
+                    // Use card finish as second level
+                    const cardFinish = row.cardFinish?.toLowerCase() || 'normal';
+                    if (acc[row.uuid][listingType][cardFinish] === undefined) {
+                        acc[row.uuid][listingType][cardFinish] = {};
+                    }
+                    
+                    // Store price provider and price directly
+                    if (row.price) {
+                        const priceProvider = row.priceProvider.toLowerCase();
+                        acc[row.uuid][listingType][cardFinish][priceProvider] = row.price;
+                    }
+                    
+                    return acc;
+                }, {});
+                
+                console.log(`Loaded pricing data for ${Object.keys(pricingDataMap).length} cards`);
+            } else {
+                console.warn("Pricing table doesn't exist in the pricing database");
+            }
+        } catch (error) {
+            console.warn('Failed to load pricing data:', error);
+            // Continue without pricing data
+        }
+        
+        // Combine all data and return the complete card list
         return cards.map((card) => {
-            const identifiers = cardIdentifiersMap[card.uuid];
             return {
                 ...card,
-                identifiers: identifiers
+                identifiers: cardIdentifiersMap[card.uuid] || null,
+                pricing: pricingDataMap[card.uuid] || null
             } as CardSet;
         });
     } catch (error) {
@@ -152,26 +237,6 @@ async function loadCardList(db: Database): Promise<CardSet[]> {
         return [];
     }
 }
-
-
-/**
- * Get data for a specific set by its code
- */
-// export async function getSetData(setCode: string): Promise<any> {
-//     try {
-//         const db = await getCardDatabase();
-//         const setData = await db.get(
-//             'SELECT data FROM sets WHERE code = ?',
-//             [setCode]
-//         );
-        
-//         if (!setData) return null;
-//         return JSON.parse(setData.data);
-//     } catch (error) {
-//         console.error(`Failed to get set data for ${setCode}:`, error);
-//         return null;
-//     }
-// }
 
 /**
  * Get card by UUID
@@ -219,57 +284,14 @@ export async function closeConnections(): Promise<void> {
     if (cardDb) {
         await cardDb.close();
         cardDb = null;
-        console.log('Database connections closed.');
+        console.log('Card database connection closed.');
     }
-}
-
-// Commented out all pricing-related functions
-/*
-// Alternative approach: Use SQLite as a more efficient storage solution for large JSON data
-export async function setupDatabase() {
-    // Ensure data directory exists
-    await fs.mkdir(DATA_DIR, { recursive: true });
     
-    // Open SQLite database
-    const db = await open({
-        filename: DB_PATH,
-        driver: sqlite3.Database
-    });
+    if (pricingDb) {
+        await pricingDb.close();
+        pricingDb = null;
+        console.log('Pricing database connection closed.');
+    }
     
-    // Create tables if they don't exist
-    await db.exec(`
-        CREATE TABLE IF NOT EXISTS card_sets (
-            code TEXT PRIMARY KEY,
-            name TEXT,
-            data TEXT
-        );
-        
-        CREATE TABLE IF NOT EXISTS card_prices (
-            uuid TEXT PRIMARY KEY,
-            data TEXT
-        );
-        
-        CREATE TABLE IF NOT EXISTS metadata (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        );
-    `);
-    
-    return db;
+    console.log('All database connections closed.');
 }
-
-// Process pricing data with SQLite for better memory efficiency
-export async function processPricingDataWithDb(pricingPath: string) {
-    // ... existing pricing processing code ...
-}
-
-// Retrieve pricing data from the database
-export async function getPricingFromDb(uuid: string) {
-    // ... existing pricing retrieval code ...
-}
-
-// Process card data with chunked approach for better memory efficiency
-export async function processCardDataInChunks(cardDataPath: string, outputDir: string) {
-    // ... existing chunk processing code ...
-}
-*/
