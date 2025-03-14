@@ -1,10 +1,8 @@
-import { AllPrintingsFile, AllPricesFile, Meta, SetList, CardSet } from '../types';
+import { Meta, SetList, CardSet } from '../types';
 import { 
-//   getSetData, 
-  // getPriceData,       // Commented out pricing data function
-  getCardByUuid, 
+  getCardsByUuid, 
   searchCardsByName 
-} from '../helpers/mtgJsonHelpers';
+} from '../database/db';
 
 /**
  * Singleton class to store and access MTG card data
@@ -15,7 +13,6 @@ class CardDataStore {
   private availableSets: SetList[] = [];
   private availableCards: CardSet[] = [];
   private symbols: any[] = [];
-//   private pricingMeta: any = {};
 
   private constructor() {}
 
@@ -26,33 +23,6 @@ class CardDataStore {
     return CardDataStore.instance;
   }
 
-  public setData(data: AllPrintingsFile): void {
-    this.metadata = data.meta;
-  }
-
-  public setAvailableSets(sets: SetList[]): void {
-    this.availableSets = sets;
-  }
-
-  public setAvailableCards(cards: CardSet[]): void {
-      this.availableCards = cards;
-  }
-
-  public getCardsBySetCode(code: string): CardSet[] {
-    return this.availableCards.filter((card) => card.setCode === code);
-  }
-
-  // Comment out pricing data setter
-  /* 
-  public setPricingData(data: AllPricesFile): void {
-    this.pricingMeta = data.meta;
-  }
-  */
-
-  public setSymbols(symbols: any[]): void {
-    this.symbols = symbols;
-  }
-
   public setMetadata(meta: Meta): void {
     this.metadata = meta;
   }
@@ -61,12 +31,17 @@ class CardDataStore {
     return this.metadata;
   }
 
-  // Comment out pricing metadata getter
-  /*
-  public getPricingMetadata(): any {
-    return this.pricingMeta;
+  public setAvailableSets(sets: SetList[]): void {
+    this.availableSets = sets;
   }
-  */
+
+  public setAvailableCards(cards: CardSet[]): void {
+    this.availableCards = cards;
+  }
+
+  public setSymbols(symbols: any[]): void {
+    this.symbols = symbols;
+  }
 
   public getSymbols(): any[] {
     return this.symbols;
@@ -81,35 +56,23 @@ class CardDataStore {
 
   public getSetbyCode(code: string): SetList | undefined {
     return this.availableSets.find((set) => set.code === code);
-}
-
-  /**
-   * Gets data for a specific set using SQLite database
-   */
-//   public async getSet(setCode: string): Promise<any> {
-//     return await getSetData(setCode);
-//   }
-
-  /**
-   * Gets pricing data for a specific card UUID using SQLite database
-   */
-  /*
-  public async getCardPrice(uuid: string): Promise<any> {
-    return await getPriceData(uuid);
   }
-  */
+
+  public getCardsBySetCode(code: string): CardSet[] {
+    return this.availableCards.filter((card) => card.setCode === code);
+  }
 
   /**
    * Gets a card by UUID using SQLite database
    */
-  public async getCard(uuid: string): Promise<any> {
-    return await getCardByUuid(uuid);
+  public async getCardsByUuid(uuids: string[]): Promise<CardSet[]> {
+    return await getCardsByUuid(uuids);
   }
 
   /**
    * Searches for cards by name using SQLite database
    */
-  public async searchCards(name: string, limit = 20): Promise<any[]> {
+  public async searchCards(name: string, limit = 20): Promise<CardSet[]> {
     return await searchCardsByName(name, limit);
   }
 }

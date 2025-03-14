@@ -239,25 +239,6 @@ async function loadCardList(db: Database): Promise<CardSet[]> {
 }
 
 /**
- * Get card by UUID
- */
-export async function getCardByUuid(uuid: string): Promise<any> {
-    try {
-        const db = await getCardDatabase();
-        const card = await db.get(
-            'SELECT data FROM cards WHERE uuid = ?',
-            [uuid]
-        );
-        
-        if (!card) return null;
-        return JSON.parse(card.data);
-    } catch (error) {
-        console.error(`Failed to get card with UUID ${uuid}:`, error);
-        return null;
-    }
-}
-
-/**
  * Search for cards by name
  */
 export async function searchCardsByName(name: string, limit = 20): Promise<any[]> {

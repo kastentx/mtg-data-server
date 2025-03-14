@@ -6,6 +6,8 @@ import { existsSync } from 'fs';
 import CardDataStore from '../store/cardData';
 import sqlite3 from 'sqlite3';
 import { open, Database } from 'sqlite';
+import { getPricingDatabase } from './largeDataHelpers';
+import { CardSet } from '../types';
 
 // Update URLs to point to SQLite versions
 const REMOTE_DATA_URL = 'https://mtgjson.com/api/v5/AllPrintings.sqlite.zip';
@@ -334,6 +336,104 @@ export async function getCardByUuid(uuid: string) {
     } catch (error) {
         console.error(`Failed to get card with UUID ${uuid}:`, error);
         return null;
+    }
+}
+
+/**
+ * Get cards by UUID
+ */
+export async function getCardsByUuid(uuids: string[]): Promise<any> {
+    try {
+        const db = await getCardDatabase();
+        // Check if cards table exists
+        const tableCheck = await db.get(
+            `SELECT name FROM sqlite_master
+            WHERE type='table' AND name='cards'`
+        );
+
+        if (!tableCheck) {
+            console.warn("Cards table doesn't exist in the database");
+            return [];
+        }
+
+        // Get all cards from the cards table
+        const cards = await db.all(`SELECT * FROM cards WHERE uuid IN (${uuids.map(() => '?').join(',')})`, uuids);
+
+        console.log(`Loaded card data for ${cards.length} cards`);
+        
+        // Get card identifiers and create a lookup map
+        const cardIdentifiers = await db.all(`SELECT * FROM cardIdentifiers WHERE uuid IN (${uuids.map(() => '?').join(',')})`, uuids);
+        const cardIdentifiersMap = cardIdentifiers.reduce((acc, row) => {
+            acc[row.uuid] = row;
+            return acc;
+        }, {});
+        
+        // Initialize empty pricing map
+        let pricingDataMap: Record<string, any> = {};
+        
+        // Try to load pricing data if available
+        try {
+            const pricingDb = await getPricingDatabase();
+            
+            // Check if the pricing database has the necessary table
+            const pricingTableCheck = await pricingDb.get(
+                `SELECT name FROM sqlite_master
+                WHERE type='table' AND name='cardPrices'`
+            );
+            
+            if (pricingTableCheck) {
+                console.log('Loading pricing information...');
+                // Get the latest pricing information for paper
+                const prices = await pricingDb.all(
+                    `SELECT * FROM cardPrices WHERE gameAvailability="paper" AND currency="USD" AND date = (SELECT MAX(date) FROM cardPrices) AND uuid IN (${uuids.map(() => '?').join(',')})`, uuids);
+                
+                // Create a simpler pricing data structure
+                pricingDataMap = prices.reduce((acc, row) => {
+                    if (!acc[row.uuid]) {
+                        acc[row.uuid] = {};
+                    }
+                    
+                    // Get the listing type (retail or buylist) and use as top level key
+                    const listingType = row.providerListing?.toLowerCase() === 'buylist' ? 'buylist' : 'retail';
+                    if (!acc[row.uuid][listingType]) {
+                        acc[row.uuid][listingType] = {};
+                    }
+                    
+                    // Use card finish as second level
+                    const cardFinish = row.cardFinish?.toLowerCase() || 'normal';
+                    if (acc[row.uuid][listingType][cardFinish] === undefined) {
+                        acc[row.uuid][listingType][cardFinish] = {};
+                    }
+                    
+                    // Store price provider and price directly
+                    if (row.price) {
+                        const priceProvider = row.priceProvider.toLowerCase();
+                        acc[row.uuid][listingType][cardFinish][priceProvider] = row.price;
+                    }
+                    
+                    return acc;
+                }, {});
+                
+                console.log(`Loaded pricing data for ${Object.keys(pricingDataMap).length} cards`);
+            } else {
+                console.warn("Pricing table doesn't exist in the pricing database");
+            }
+        } catch (error) {
+            console.warn('Failed to load pricing data:', error);
+            // Continue without pricing data
+        }
+        
+        // Combine all data and return the complete card list
+        return cards.map((card) => {
+            return {
+                ...card,
+                identifiers: cardIdentifiersMap[card.uuid] || null,
+                pricing: pricingDataMap[card.uuid] || null
+            } as CardSet;
+        });
+    } catch (error) {
+        console.error('Error loading card list:', error);
+        return [];
     }
 }
 
