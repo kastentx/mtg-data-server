@@ -4,7 +4,8 @@ import {
   checkRemoteFileModified, 
   checkLocalFileModified, 
   downloadCardData,
-  initializeCardStore
+    initializeCardStore,
+    refreshDataAndReload
 } from '../services/dataService';
 
 const router = express.Router();
@@ -65,5 +66,17 @@ router.post('/load-data', async (req, res) => {
         res.status(500).send('Error loading data');
     }
 });
+
+/**
+ * Refresh card and pricing data from remote sources and reload store
+ */
+router.post('/refresh-data', asyncHandler(async (_req, res) => {
+    const result = await refreshDataAndReload();
+    res.json({
+        status: 'OK',
+        message: 'Data refresh completed',
+        ...result
+    });
+}));
 
 export default router;

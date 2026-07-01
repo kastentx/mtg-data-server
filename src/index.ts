@@ -6,8 +6,7 @@ import adminRouter from './routes/adminRouter';
 import setsRouter from './routes/setsRouter';
 import cardsRouter from './routes/cardsRouter';
 import { 
-  initializeCardStore, 
-  loadSymbolData 
+  refreshDataAndReload
 } from './services/dataService';
 import { closeConnections } from './database/db';
 
@@ -38,12 +37,11 @@ app.use('/api/v1/cards', cardsRouter);
 async function initializeData() {
   try {
     console.log('Initializing data...');
-    
-    // Load symbol data
-    await loadSymbolData();
-    
-    // Initialize card store
-    await initializeCardStore();
+
+    const refreshResult = await refreshDataAndReload();
+    console.log(
+      `Data refresh completed. Card DB updated: ${refreshResult.cardDataUpdated}, Pricing DB updated: ${refreshResult.pricingDataUpdated}`
+    );
 
     console.log('Data loaded successfully!');
   } catch (error) {
