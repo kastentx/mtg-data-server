@@ -35,7 +35,7 @@ async function initializeData() {
     try {
         console.log('Initializing data...');
         const refreshResult = await (0, dataService_1.refreshDataAndReload)();
-        console.log(`Data refresh completed. Card DB updated: ${refreshResult.cardDataUpdated}, Pricing DB updated: ${refreshResult.pricingDataUpdated}`);
+        console.log(`Data refresh completed. Card DB updated: ${refreshResult.cardDataUpdated}, Pricing DB updated: ${refreshResult.pricingDataUpdated}, Historical Pricing DB updated: ${refreshResult.historicalPricingDataUpdated}`);
         console.log('Data loaded successfully!');
     }
     catch (error) {

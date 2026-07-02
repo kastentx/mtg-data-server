@@ -40,7 +40,7 @@ async function initializeData() {
 
     const refreshResult = await refreshDataAndReload();
     console.log(
-      `Data refresh completed. Card DB updated: ${refreshResult.cardDataUpdated}, Pricing DB updated: ${refreshResult.pricingDataUpdated}`
+      `Data refresh completed. Card DB updated: ${refreshResult.cardDataUpdated}, Pricing DB updated: ${refreshResult.pricingDataUpdated}, Historical Pricing DB updated: ${refreshResult.historicalPricingDataUpdated}`
     );
 
     console.log('Data loaded successfully!');

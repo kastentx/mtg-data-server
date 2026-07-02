@@ -2,17 +2,20 @@ import { existsSync } from 'fs';
 import path from 'path';
 import sqlite3 from 'sqlite3';
 import { open, Database } from 'sqlite';
-import { CardSet, SetList, Meta } from '../types';
+import { CardSet, SetList, Meta, PriceHistoryEntry } from '../types';
 
 const DATA_DIR = 'data';
 const CARD_DB_FILE = 'AllPrintings.sqlite';
 const PRICING_DB_FILE = 'AllPricesToday.sqlite';
+const HISTORICAL_PRICING_DB_FILE = 'AllPrices.sqlite';
 const CARD_DB_PATH = path.join(DATA_DIR, CARD_DB_FILE);
 const PRICING_DB_PATH = path.join(DATA_DIR, PRICING_DB_FILE);
+const HISTORICAL_PRICING_DB_PATH = path.join(DATA_DIR, HISTORICAL_PRICING_DB_FILE);
 
 // Database connection cache
 let cardDb: Database | null = null;
 let pricingDb: Database | null = null;
+let historicalPricingDb: Database | null = null;
 
 /**
  * Gets or creates a connection to the card database
@@ -52,6 +55,26 @@ export async function getPricingDatabase(): Promise<Database> {
         console.log('Pricing database connection established');
     }
     return pricingDb;
+}
+
+/**
+ * Gets or creates a connection to the historical pricing database
+ */
+export async function getHistoricalPricingDatabase(): Promise<Database> {
+    if (!historicalPricingDb) {
+        if (!existsSync(HISTORICAL_PRICING_DB_PATH)) {
+            throw new Error(`Historical pricing database not found at ${HISTORICAL_PRICING_DB_PATH}. Please download it first.`);
+        }
+
+        console.log(`Opening historical pricing SQLite database at ${HISTORICAL_PRICING_DB_PATH}`);
+        historicalPricingDb = await open({
+            filename: HISTORICAL_PRICING_DB_PATH,
+            driver: sqlite3.Database,
+            mode: sqlite3.OPEN_READONLY
+        });
+        console.log('Historical pricing database connection established');
+    }
+    return historicalPricingDb;
 }
 
 /**
@@ -270,6 +293,43 @@ export async function getCardsByUuid(uuids: string[]): Promise<CardSet[]> {
 }
 
 /**
+ * Get historical paper USD prices for a card UUID, newest first
+ */
+export async function getPriceHistoryByUuid(uuid: string): Promise<PriceHistoryEntry[]> {
+    if (!uuid) {
+        return [];
+    }
+
+    try {
+        const db = await getHistoricalPricingDatabase();
+        const tableCheck = await db.get(
+            `SELECT name FROM sqlite_master
+            WHERE type='table' AND name='prices'`
+        );
+
+        if (!tableCheck) {
+            console.warn("Prices table doesn't exist in the historical pricing database");
+            return [];
+        }
+
+        const rows = await db.all(
+            `SELECT uuid, date, source, provider, priceType, finish, price, currency
+             FROM prices
+             WHERE uuid = ?
+               AND source = 'paper'
+               AND currency = 'USD'
+             ORDER BY date DESC`,
+            [uuid]
+        );
+
+        return rows as PriceHistoryEntry[];
+    } catch (error) {
+        console.error(`Failed to get price history for UUID "${uuid}":`, error);
+        return [];
+    }
+}
+
+/**
  * Search for cards by name
  */
 export async function searchCardsByName(name: string, limit = 20): Promise<CardSet[]> {
@@ -307,6 +367,12 @@ export async function closeConnections(): Promise<void> {
         await pricingDb.close();
         pricingDb = null;
         console.log('Pricing database connection closed.');
+    }
+
+    if (historicalPricingDb) {
+        await historicalPricingDb.close();
+        historicalPricingDb = null;
+        console.log('Historical pricing database connection closed.');
     }
     
     console.log('All database connections closed.');

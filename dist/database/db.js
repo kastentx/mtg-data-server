@@ -5,10 +5,12 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getCardDatabase = getCardDatabase;
 exports.getPricingDatabase = getPricingDatabase;
+exports.getHistoricalPricingDatabase = getHistoricalPricingDatabase;
 exports.loadMetadata = loadMetadata;
 exports.loadSetList = loadSetList;
 exports.loadCards = loadCards;
 exports.getCardsByUuid = getCardsByUuid;
+exports.getPriceHistoryByUuid = getPriceHistoryByUuid;
 exports.searchCardsByName = searchCardsByName;
 exports.closeConnections = closeConnections;
 const fs_1 = require("fs");
@@ -18,11 +20,14 @@ const sqlite_1 = require("sqlite");
 const DATA_DIR = 'data';
 const CARD_DB_FILE = 'AllPrintings.sqlite';
 const PRICING_DB_FILE = 'AllPricesToday.sqlite';
+const HISTORICAL_PRICING_DB_FILE = 'AllPrices.sqlite';
 const CARD_DB_PATH = path_1.default.join(DATA_DIR, CARD_DB_FILE);
 const PRICING_DB_PATH = path_1.default.join(DATA_DIR, PRICING_DB_FILE);
+const HISTORICAL_PRICING_DB_PATH = path_1.default.join(DATA_DIR, HISTORICAL_PRICING_DB_FILE);
 // Database connection cache
 let cardDb = null;
 let pricingDb = null;
+let historicalPricingDb = null;
 /**
  * Gets or creates a connection to the card database
  */
@@ -58,6 +63,24 @@ async function getPricingDatabase() {
         console.log('Pricing database connection established');
     }
     return pricingDb;
+}
+/**
+ * Gets or creates a connection to the historical pricing database
+ */
+async function getHistoricalPricingDatabase() {
+    if (!historicalPricingDb) {
+        if (!(0, fs_1.existsSync)(HISTORICAL_PRICING_DB_PATH)) {
+            throw new Error(`Historical pricing database not found at ${HISTORICAL_PRICING_DB_PATH}. Please download it first.`);
+        }
+        console.log(`Opening historical pricing SQLite database at ${HISTORICAL_PRICING_DB_PATH}`);
+        historicalPricingDb = await (0, sqlite_1.open)({
+            filename: HISTORICAL_PRICING_DB_PATH,
+            driver: sqlite3_1.default.Database,
+            mode: sqlite3_1.default.OPEN_READONLY
+        });
+        console.log('Historical pricing database connection established');
+    }
+    return historicalPricingDb;
 }
 /**
  * Load metadata from the database
@@ -237,6 +260,34 @@ async function getCardsByUuid(uuids) {
     }
 }
 /**
+ * Get historical paper USD prices for a card UUID, newest first
+ */
+async function getPriceHistoryByUuid(uuid) {
+    if (!uuid) {
+        return [];
+    }
+    try {
+        const db = await getHistoricalPricingDatabase();
+        const tableCheck = await db.get(`SELECT name FROM sqlite_master
+            WHERE type='table' AND name='prices'`);
+        if (!tableCheck) {
+            console.warn("Prices table doesn't exist in the historical pricing database");
+            return [];
+        }
+        const rows = await db.all(`SELECT uuid, date, source, provider, priceType, finish, price, currency
+             FROM prices
+             WHERE uuid = ?
+               AND source = 'paper'
+               AND currency = 'USD'
+             ORDER BY date DESC`, [uuid]);
+        return rows;
+    }
+    catch (error) {
+        console.error(`Failed to get price history for UUID "${uuid}":`, error);
+        return [];
+    }
+}
+/**
  * Search for cards by name
  */
 async function searchCardsByName(name, limit = 20) {
@@ -269,6 +320,11 @@ async function closeConnections() {
         await pricingDb.close();
         pricingDb = null;
         console.log('Pricing database connection closed.');
+    }
+    if (historicalPricingDb) {
+        await historicalPricingDb.close();
+        historicalPricingDb = null;
+        console.log('Historical pricing database connection closed.');
     }
     console.log('All database connections closed.');
 }

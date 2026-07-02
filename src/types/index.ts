@@ -312,6 +312,16 @@ export type PricePoints = {
     foil?: Record<string, number>;
     normal?: Record<string, number>;
 };
+export type PriceHistoryEntry = {
+    uuid: string;
+    date: string;
+    source: string;
+    provider: string;
+    priceType: string;
+    finish: string;
+    price: number;
+    currency: string;
+};
 export type SealedProductCard = {
     foil?: boolean;
     name: string;
