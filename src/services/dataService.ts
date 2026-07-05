@@ -20,15 +20,21 @@ const HISTORICAL_PRICING_DB_FILE = 'AllPrices.sqlite';
 const HISTORICAL_PRICING_JSON_FILE = 'AllPrices.json';
 const SYMBOLS_FILE = 'symbols.json';
 const AUTO_REFRESH_MIN_AGE_HOURS = 24;
-const REMOTE_DATA_URL = 'https://mtgjson.com/api/v5/AllPrintings.sqlite.zip';
-const REMOTE_PRICING_URL = 'https://mtgjson.com/api/v5/AllPricesToday.sqlite.zip';
-const REMOTE_HISTORICAL_PRICING_URL = 'https://mtgjson.com/api/v5/AllPrices.json.zip';
+const REMOTE_DATA_URL = 'https://mtgjson.com/api/v5/AllPrintings.sqlite';
+const REMOTE_PRICING_URL = 'https://mtgjson.com/api/v5/AllPricesToday.sqlite';
+const REMOTE_HISTORICAL_PRICING_URL = 'https://mtgjson.com/api/v5/AllPrices.json';
 const REMOTE_SYMBOLS_URL = 'https://api.scryfall.com/symbology';
 const CARD_DB_PATH = path.join(DATA_DIR, CARD_DB_FILE);
 const PRICING_DB_PATH = path.join(DATA_DIR, PRICING_DB_FILE);
 const HISTORICAL_PRICING_DB_PATH = path.join(DATA_DIR, HISTORICAL_PRICING_DB_FILE);
 const HISTORICAL_PRICING_JSON_PATH = path.join(DATA_DIR, HISTORICAL_PRICING_JSON_FILE);
 const SYMBOLS_PATH = path.join(DATA_DIR, SYMBOLS_FILE);
+
+interface DownloadedPayload {
+    data: Buffer;
+    isZip: boolean;
+    url: string;
+}
 
 async function assertSuccessfulFetch(response: { ok: boolean; status: number; headers: { get(name: string): string | null; }; text(): Promise<string>; }, sourceLabel: string): Promise<void> {
     if (response.ok) {
@@ -37,6 +43,89 @@ async function assertSuccessfulFetch(response: { ok: boolean; status: number; he
 
     const bodyPreview = (await response.text()).slice(0, 300);
     throw new Error(`${sourceLabel} download failed with status ${response.status}. Response preview: ${bodyPreview}`);
+}
+
+function buildZipUrl(url: string): string {
+    return `${url}.zip`;
+}
+
+async function downloadWithZipFallback(baseUrl: string, sourceLabel: string): Promise<DownloadedPayload> {
+    const zipUrl = buildZipUrl(baseUrl);
+    const zipResponse = await fetch(zipUrl);
+
+    if (zipResponse.ok) {
+        return {
+            data: Buffer.from(await zipResponse.arrayBuffer()),
+            isZip: true,
+            url: zipUrl
+        };
+    }
+
+    console.warn(
+        `${sourceLabel} zip download unavailable (status ${zipResponse.status}). Falling back to direct download.`
+    );
+
+    const directResponse = await fetch(baseUrl);
+    await assertSuccessfulFetch(directResponse, sourceLabel);
+
+    return {
+        data: Buffer.from(await directResponse.arrayBuffer()),
+        isZip: false,
+        url: baseUrl
+    };
+}
+
+async function getRemoteLastModifiedWithZipFallback(baseUrl: string, sourceLabel: string): Promise<Date | null> {
+    const zipUrl = buildZipUrl(baseUrl);
+
+    try {
+        const zipHeadResponse = await fetch(zipUrl, { method: 'HEAD' });
+        if (zipHeadResponse.ok) {
+            const lastModified = zipHeadResponse.headers.get('last-modified');
+            return lastModified ? new Date(lastModified) : null;
+        }
+
+        console.warn(
+            `${sourceLabel} zip HEAD check unavailable (status ${zipHeadResponse.status}). Falling back to direct HEAD check.`
+        );
+    } catch (error) {
+        console.warn(`${sourceLabel} zip HEAD check failed. Falling back to direct HEAD check.`, error);
+    }
+
+    try {
+        const directHeadResponse = await fetch(baseUrl, { method: 'HEAD' });
+        if (!directHeadResponse.ok) {
+            return null;
+        }
+
+        const lastModified = directHeadResponse.headers.get('last-modified');
+        return lastModified ? new Date(lastModified) : null;
+    } catch (error) {
+        console.warn(`Failed to check remote ${sourceLabel.toLowerCase()} file modification date:`, error);
+        return null;
+    }
+}
+
+async function extractZipEntryToFile(
+    zipData: Buffer,
+    outputPath: string,
+    notFoundMessage: string,
+    entryMatcher: (entryName: string) => boolean
+): Promise<void> {
+    const zip = new AdmZip(zipData);
+    const zipEntries = zip.getEntries();
+
+    if (zipEntries.length === 0) {
+        throw new Error('No entries found in zip file');
+    }
+
+    const matchedEntry = zipEntries.find((entry) => entryMatcher(entry.name));
+    if (!matchedEntry) {
+        throw new Error(notFoundMessage);
+    }
+
+    const extractedData = matchedEntry.getData();
+    await fs.writeFile(outputPath, extractedData);
 }
 
 async function buildHistoricalPricingSqliteFromJson(jsonPath: string, outputPath: string): Promise<void> {
@@ -169,51 +258,21 @@ async function buildHistoricalPricingSqliteFromJson(jsonPath: string, outputPath
  * Check if remote data file has been modified
  */
 export async function checkRemoteFileModified(): Promise<Date | null> {
-    try {
-        const response = await fetch(REMOTE_DATA_URL, { method: 'HEAD' });
-        const lastModified = response.headers.get('last-modified');
-        if (!lastModified) {
-            return null;
-        }
-        return new Date(lastModified);
-    } catch (error) {
-        console.warn('Failed to check remote card file modification date:', error);
-        return null;
-    }
+    return getRemoteLastModifiedWithZipFallback(REMOTE_DATA_URL, 'Card data');
 }
 
 /**
  * Check if remote pricing file has been modified
  */
 export async function checkRemotePricingFileModified(): Promise<Date | null> {
-    try {
-        const response = await fetch(REMOTE_PRICING_URL, { method: 'HEAD' });
-        const lastModified = response.headers.get('last-modified');
-        if (!lastModified) {
-            return null;
-        }
-        return new Date(lastModified);
-    } catch (error) {
-        console.warn('Failed to check remote pricing file modification date:', error);
-        return null;
-    }
+    return getRemoteLastModifiedWithZipFallback(REMOTE_PRICING_URL, 'Pricing data');
 }
 
 /**
  * Check if remote historical pricing file has been modified
  */
 export async function checkRemoteHistoricalPricingFileModified(): Promise<Date | null> {
-    try {
-        const response = await fetch(REMOTE_HISTORICAL_PRICING_URL, { method: 'HEAD' });
-        const lastModified = response.headers.get('last-modified');
-        if (!lastModified) {
-            return null;
-        }
-        return new Date(lastModified);
-    } catch (error) {
-        console.warn('Failed to check remote historical pricing file modification date:', error);
-        return null;
-    }
+    return getRemoteLastModifiedWithZipFallback(REMOTE_HISTORICAL_PRICING_URL, 'Historical pricing data');
 }
 
 /**
@@ -275,37 +334,21 @@ export async function downloadCardData(): Promise<void> {
     try {
         console.log('Downloading card data in SQLite format...');
         await fs.mkdir(DATA_DIR, { recursive: true });
-        
-        const response = await fetch(REMOTE_DATA_URL);
-        const data = await response.arrayBuffer();
-        
-        // Create temporary zip file
-        const tempZipPath = path.join(DATA_DIR, `${CARD_DB_FILE}.zip`);
-        await fs.writeFile(tempZipPath, Buffer.from(data));
-        
-        // Extract SQLite file from zip
-        const zip = new AdmZip(tempZipPath);
-        const zipEntries = zip.getEntries();
-        
-        if (zipEntries.length > 0) {
-            // Find SQLite file in the archive
-            const sqliteEntry = zipEntries.find(entry => 
-                entry.name.endsWith('.sqlite') || 
-                entry.name === 'AllPrintings.sqlite'
+
+        const downloadedPayload = await downloadWithZipFallback(REMOTE_DATA_URL, 'Card data');
+        if (downloadedPayload.isZip) {
+            await extractZipEntryToFile(
+                downloadedPayload.data,
+                CARD_DB_PATH,
+                'No SQLite file found in the card data zip file',
+                (entryName) => entryName.endsWith('.sqlite') || entryName.endsWith(CARD_DB_FILE)
             );
-            
-            if (sqliteEntry) {
-                console.log(`Extracting ${sqliteEntry.name} to ${CARD_DB_PATH}`);
-                zip.extractEntryTo(sqliteEntry.entryName, DATA_DIR, false, true, false, CARD_DB_FILE);
-            } else {
-                throw new Error('No SQLite file found in the card data zip file');
-            }
+            console.log(`Extracted card data from ${downloadedPayload.url} to ${CARD_DB_PATH}`);
         } else {
-            throw new Error('No entries found in card data zip file');
+            await fs.writeFile(CARD_DB_PATH, downloadedPayload.data);
+            console.log(`Saved card data from ${downloadedPayload.url} to ${CARD_DB_PATH}`);
         }
-        
-        // Clean up temp zip file
-        await fs.unlink(tempZipPath);
+
         console.log('Card data downloaded and extracted successfully.');
     } catch (error) {
         console.error('Failed to download card data:', error);
@@ -321,36 +364,20 @@ export async function downloadPricingData(): Promise<void> {
         console.log('Downloading pricing data in SQLite format...');
         await fs.mkdir(DATA_DIR, { recursive: true });
 
-        const response = await fetch(REMOTE_PRICING_URL);
-        const data = await response.arrayBuffer();
-
-        // Create temporary zip file
-        const tempZipPath = path.join(DATA_DIR, `${PRICING_DB_FILE}.zip`);
-        await fs.writeFile(tempZipPath, Buffer.from(data));
-
-        // Extract SQLite file from zip
-        const zip = new AdmZip(tempZipPath);
-        const zipEntries = zip.getEntries();
-
-        if (zipEntries.length > 0) {
-            // Find SQLite file in the archive
-            const sqliteEntry = zipEntries.find(entry =>
-                entry.name.endsWith('.sqlite') ||
-                entry.name === PRICING_DB_FILE
+        const downloadedPayload = await downloadWithZipFallback(REMOTE_PRICING_URL, 'Pricing data');
+        if (downloadedPayload.isZip) {
+            await extractZipEntryToFile(
+                downloadedPayload.data,
+                PRICING_DB_PATH,
+                'No SQLite file found in the pricing data zip file',
+                (entryName) => entryName.endsWith('.sqlite') || entryName.endsWith(PRICING_DB_FILE)
             );
-
-            if (sqliteEntry) {
-                console.log(`Extracting ${sqliteEntry.name} to ${PRICING_DB_PATH}`);
-                zip.extractEntryTo(sqliteEntry.entryName, DATA_DIR, false, true, false, PRICING_DB_FILE);
-            } else {
-                throw new Error('No SQLite file found in the pricing data zip file');
-            }
+            console.log(`Extracted pricing data from ${downloadedPayload.url} to ${PRICING_DB_PATH}`);
         } else {
-            throw new Error('No entries found in pricing data zip file');
+            await fs.writeFile(PRICING_DB_PATH, downloadedPayload.data);
+            console.log(`Saved pricing data from ${downloadedPayload.url} to ${PRICING_DB_PATH}`);
         }
 
-        // Clean up temp zip file
-        await fs.unlink(tempZipPath);
         console.log('Pricing data downloaded and extracted successfully.');
     } catch (error) {
         console.error('Failed to download pricing data:', error);
@@ -366,39 +393,25 @@ export async function downloadHistoricalPricing(): Promise<void> {
         console.log('Downloading historical pricing data in JSON format and converting to SQLite...');
         await fs.mkdir(DATA_DIR, { recursive: true });
 
-        const response = await fetch(REMOTE_HISTORICAL_PRICING_URL);
-        await assertSuccessfulFetch(response, 'Historical pricing');
-        const data = await response.arrayBuffer();
-
-        // Create temporary zip file
-        const tempZipPath = path.join(DATA_DIR, `${HISTORICAL_PRICING_JSON_FILE}.zip`);
-        await fs.writeFile(tempZipPath, Buffer.from(data));
-
-        // Extract JSON file from zip
-        const zip = new AdmZip(tempZipPath);
-        const zipEntries = zip.getEntries();
-
-        if (zipEntries.length > 0) {
-            // Find JSON file in the archive
-            const jsonEntry = zipEntries.find(entry =>
-                entry.name.endsWith('.json') ||
-                entry.name === HISTORICAL_PRICING_JSON_FILE
+        const downloadedPayload = await downloadWithZipFallback(REMOTE_HISTORICAL_PRICING_URL, 'Historical pricing');
+        if (downloadedPayload.isZip) {
+            await extractZipEntryToFile(
+                downloadedPayload.data,
+                HISTORICAL_PRICING_JSON_PATH,
+                'No JSON file found in the historical pricing data zip file',
+                (entryName) => entryName.endsWith('.json') || entryName.endsWith(HISTORICAL_PRICING_JSON_FILE)
             );
-
-            if (jsonEntry) {
-                console.log(`Extracting ${jsonEntry.name} to ${HISTORICAL_PRICING_JSON_PATH}`);
-                zip.extractEntryTo(jsonEntry.entryName, DATA_DIR, false, true, false, HISTORICAL_PRICING_JSON_FILE);
-            } else {
-                throw new Error('No JSON file found in the historical pricing data zip file');
-            }
+            console.log(
+                `Extracted historical pricing JSON from ${downloadedPayload.url} to ${HISTORICAL_PRICING_JSON_PATH}`
+            );
         } else {
-            throw new Error('No entries found in historical pricing data zip file');
+            await fs.writeFile(HISTORICAL_PRICING_JSON_PATH, downloadedPayload.data);
+            console.log(`Saved historical pricing JSON from ${downloadedPayload.url} to ${HISTORICAL_PRICING_JSON_PATH}`);
         }
 
         await buildHistoricalPricingSqliteFromJson(HISTORICAL_PRICING_JSON_PATH, HISTORICAL_PRICING_DB_PATH);
 
         // Clean up temporary files
-        await fs.unlink(tempZipPath);
         if (existsSync(HISTORICAL_PRICING_JSON_PATH)) {
             await fs.unlink(HISTORICAL_PRICING_JSON_PATH);
         }
