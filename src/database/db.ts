@@ -292,10 +292,19 @@ export async function getCardsByUuid(uuids: string[]): Promise<CardSet[]> {
     }
 }
 
+type PriceHistoryFilters = {
+    provider?: string;
+    priceType?: string;
+    finish?: string;
+};
+
 /**
  * Get historical paper USD prices for a card UUID, newest first
  */
-export async function getPriceHistoryByUuid(uuid: string): Promise<PriceHistoryEntry[]> {
+export async function getPriceHistoryByUuid(
+    uuid: string,
+    filters: PriceHistoryFilters = {}
+): Promise<PriceHistoryEntry[]> {
     if (!uuid) {
         return [];
     }
@@ -312,14 +321,34 @@ export async function getPriceHistoryByUuid(uuid: string): Promise<PriceHistoryE
             return [];
         }
 
+        const whereClauses: string[] = [
+            'uuid = ?',
+            "source = 'paper'",
+            "currency = 'USD'"
+        ];
+        const params: Array<string> = [uuid];
+
+        if (filters.provider) {
+            whereClauses.push('LOWER(provider) = ?');
+            params.push(filters.provider.toLowerCase());
+        }
+
+        if (filters.priceType) {
+            whereClauses.push('LOWER(priceType) = ?');
+            params.push(filters.priceType.toLowerCase());
+        }
+
+        if (filters.finish) {
+            whereClauses.push('LOWER(finish) = ?');
+            params.push(filters.finish.toLowerCase());
+        }
+
         const rows = await db.all(
             `SELECT uuid, date, source, provider, priceType, finish, price, currency
              FROM prices
-             WHERE uuid = ?
-               AND source = 'paper'
-               AND currency = 'USD'
+             WHERE ${whereClauses.join(' AND ')}
              ORDER BY date DESC`,
-            [uuid]
+            params
         );
 
         return rows as PriceHistoryEntry[];
