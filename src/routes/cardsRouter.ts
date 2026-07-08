@@ -2,7 +2,8 @@ import express from 'express';
 import asyncHandler from 'express-async-handler';
 import CardDataStore from '../store/cardData';
 import { CardSet } from '../types';
-import { getPriceHistoryByUuid } from '../database/db';
+import { getPriceHistoryByUuid, getPriceHistoryByUuids } from '../database/db';
+import { calculateMovingAverages } from '../utils/priceMath';
 
 const router = express.Router();
 
@@ -74,38 +75,6 @@ router.get('/search', asyncHandler(async (req, res) => {
     res.json(cards);
 }));
 
-function calculateMovingAverageForWindow(
-    historicalPrices: Array<{ date: string; price: number }>,
-    windowDays: number
-): number | null {
-    if (!historicalPrices.length) {
-        return null;
-    }
-
-    const latestDate = new Date(historicalPrices[0].date);
-    if (Number.isNaN(latestDate.getTime())) {
-        return null;
-    }
-
-    const windowStart = new Date(latestDate);
-    windowStart.setDate(windowStart.getDate() - (windowDays - 1));
-
-    const windowPrices = historicalPrices
-        .filter((entry) => {
-            const entryDate = new Date(entry.date);
-            return !Number.isNaN(entryDate.getTime()) && entryDate >= windowStart;
-        })
-        .map((entry) => entry.price)
-        .filter((price) => Number.isFinite(price));
-
-    if (!windowPrices.length) {
-        return null;
-    }
-
-    const sum = windowPrices.reduce((acc, price) => acc + price, 0);
-    return Number((sum / windowPrices.length).toFixed(4));
-}
-
 /**
  * Get historical prices and moving averages for a card UUID
  */
@@ -137,12 +106,44 @@ router.get('/:uuid/prices/historic', asyncHandler(async (req, res) => {
 
     res.json({
         historical,
-        averages: {
-            movingAverage90Day: calculateMovingAverageForWindow(historical, 90),
-            movingAverage30Day: calculateMovingAverageForWindow(historical, 30),
-            movingAverage7Day: calculateMovingAverageForWindow(historical, 7)
-        }
+        averages: calculateMovingAverages(historical)
     });
+}));
+
+/**
+ * Get batched historical price moving averages (90/30/7 day) for a list of
+ * card UUIDs. Intended for page-level summaries (e.g. Market Data list/grid
+ * views) where a full history isn't needed - just the averages to display
+ * alongside the current retail price range.
+ */
+router.post('/prices/historic/batch', asyncHandler(async (req, res) => {
+    const uuids = req.body.uuids as string[];
+    const finishParam = typeof req.body.finish === 'string' ? req.body.finish.trim().toLowerCase() : undefined;
+
+    if (!uuids || !Array.isArray(uuids) || uuids.length === 0) {
+        res.status(400).json({ error: 'Invalid uuids parameter' });
+        return;
+    }
+
+    if (finishParam && finishParam !== 'normal' && finishParam !== 'foil') {
+        res.status(400).json({ error: 'Invalid finish. Expected normal or foil.' });
+        return;
+    }
+
+    const finish = finishParam ?? 'normal';
+
+    const historyByUuid = await getPriceHistoryByUuids(uuids, {
+        priceType: 'retail',
+        finish
+    });
+
+    const results = uuids.map((uuid) => ({
+        uuid,
+        finish,
+        averages: calculateMovingAverages(historyByUuid[uuid] ?? [])
+    }));
+
+    res.json({ results });
 }));
 
 export default router;

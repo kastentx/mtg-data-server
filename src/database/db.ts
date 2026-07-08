@@ -292,7 +292,7 @@ export async function getCardsByUuid(uuids: string[]): Promise<CardSet[]> {
     }
 }
 
-type PriceHistoryFilters = {
+export type PriceHistoryFilters = {
     provider?: string;
     priceType?: string;
     finish?: string;
@@ -355,6 +355,78 @@ export async function getPriceHistoryByUuid(
     } catch (error) {
         console.error(`Failed to get price history for UUID "${uuid}":`, error);
         return [];
+    }
+}
+
+/**
+ * Get historical paper USD prices for multiple card UUIDs in a single query,
+ * grouped by UUID and sorted newest first within each group. Used by the
+ * batch historic pricing endpoint to compute per-card moving averages
+ * without issuing one query per card.
+ */
+export async function getPriceHistoryByUuids(
+    uuids: string[],
+    filters: PriceHistoryFilters = {}
+): Promise<Record<string, PriceHistoryEntry[]>> {
+    if (!uuids.length) {
+        return {};
+    }
+
+    try {
+        const db = await getHistoricalPricingDatabase();
+        const tableCheck = await db.get(
+            `SELECT name FROM sqlite_master
+            WHERE type='table' AND name='prices'`
+        );
+
+        if (!tableCheck) {
+            console.warn("Prices table doesn't exist in the historical pricing database");
+            return {};
+        }
+
+        const placeholders = uuids.map(() => '?').join(', ');
+        const whereClauses: string[] = [
+            `uuid IN (${placeholders})`,
+            "source = 'paper'",
+            "currency = 'USD'"
+        ];
+        const params: Array<string> = [...uuids];
+
+        if (filters.provider) {
+            whereClauses.push('LOWER(provider) = ?');
+            params.push(filters.provider.toLowerCase());
+        }
+
+        if (filters.priceType) {
+            whereClauses.push('LOWER(priceType) = ?');
+            params.push(filters.priceType.toLowerCase());
+        }
+
+        if (filters.finish) {
+            whereClauses.push('LOWER(finish) = ?');
+            params.push(filters.finish.toLowerCase());
+        }
+
+        const rows = await db.all(
+            `SELECT uuid, date, source, provider, priceType, finish, price, currency
+             FROM prices
+             WHERE ${whereClauses.join(' AND ')}
+             ORDER BY uuid, date DESC`,
+            params
+        );
+
+        const grouped: Record<string, PriceHistoryEntry[]> = {};
+        for (const row of rows as PriceHistoryEntry[]) {
+            if (!grouped[row.uuid]) {
+                grouped[row.uuid] = [];
+            }
+            grouped[row.uuid].push(row);
+        }
+
+        return grouped;
+    } catch (error) {
+        console.error('Failed to get price history for UUID batch:', error);
+        return {};
     }
 }
 
